@@ -1,0 +1,8 @@
+FROM eclipse-temurin:17-jre-alpine
+RUN addgroup -g 1001 -S spring && adduser -S spring -u 1001 -G spring
+WORKDIR /app
+COPY --chown=spring:spring target/dependency/BOOT-INF/lib ./lib
+COPY --chown=spring:spring target/dependency/META-INF ./META-INF
+COPY --chown=spring:spring target/dependency/BOOT-INF/classes ./
+USER spring
+ENTRYPOINT ["java", "-cp", "/app:/app/lib/*", "com.yourcompany.microservices.sampleservice.SampleServiceApplication"]
