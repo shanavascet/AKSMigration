@@ -1,0 +1,223 @@
+package com.yourcompany.microservices.sampleservice;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+@SpringBootApplication
+@EnableFeignClients
+@EnableDiscoveryClient
+@EnableAsync
+@EnableTransactionManagement
+@ConfigurationPropertiesScan
+public class SampleServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(SampleServiceApplication.class, args);
+    }
+}
+
+// Health Check Controller
+package com.yourcompany.microservices.sampleservice.controller;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.stereotype.Component;
+
+@RestController
+public class HealthController {
+
+    @GetMapping("/health")
+    public String health() {
+        return "Service is running";
+    }
+    
+    @GetMapping("/ready")
+    public String ready() {
+        return "Service is ready";
+    }
+}
+
+// Custom Health Indicator for Kubernetes
+@Component
+public class CustomHealthIndicator implements HealthIndicator {
+    
+    @Override
+    public Health health() {
+        // Add custom health checks here
+        // For example, check database connectivity, external services, etc.
+        
+        boolean databaseHealthy = checkDatabaseHealth();
+        boolean externalServiceHealthy = checkExternalServices();
+        
+        if (databaseHealthy && externalServiceHealthy) {
+            return Health.up()
+                .withDetail("database", "UP")
+                .withDetail("external-service", "UP")
+                .build();
+        } else {
+            return Health.down()
+                .withDetail("database", databaseHealthy ? "UP" : "DOWN")
+                .withDetail("external-service", externalServiceHealthy ? "UP" : "DOWN")
+                .build();
+        }
+    }
+    
+    private boolean checkDatabaseHealth() {
+        // Implement database health check logic
+        return true;
+    }
+    
+    private boolean checkExternalServices() {
+        // Implement external service health check logic
+        return true;
+    }
+}
+
+// Configuration Properties for AKS
+package com.yourcompany.microservices.sampleservice.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
+
+@ConfigurationProperties(prefix = "app")
+public record ApplicationProperties(
+    String name,
+    String version,
+    DatabaseProperties database,
+    KubernetesProperties kubernetes
+) {
+    
+    public record DatabaseProperties(
+        int poolSize,
+        int connectionTimeout,
+        int maxLifetime
+    ) {}
+    
+    public record KubernetesProperties(
+        String namespace,
+        boolean discoveryEnabled,
+        boolean configReloadEnabled
+    ) {}
+}
+
+// Security Configuration
+package com.yourcompany.microservices.sampleservice.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf().disable()
+            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            .and()
+            .authorizeHttpRequests(authz -> authz
+                .requestMatchers("/actuator/**").permitAll()
+                .requestMatchers("/health", "/ready").permitAll()
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt.jwtDecoder(jwtDecoder()))
+            );
+        
+        return http.build();
+    }
+    
+    @Bean
+    public JwtDecoder jwtDecoder() {
+        // Configure JWT decoder for Azure AD or your OAuth2 provider
+        return NimbusJwtDecoder.withJwkSetUri("https://your-identity-provider.com/.well-known/jwks.json")
+                .build();
+    }
+}
+
+// Feign Client Configuration
+package com.yourcompany.microservices.sampleservice.client;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+@FeignClient(name = "user-service", url = "http://user-service:8080")
+public interface UserServiceClient {
+    
+    @GetMapping("/api/users/{id}")
+    UserDto getUserById(@PathVariable Long id);
+    
+    @GetMapping("/api/users")
+    List<UserDto> getAllUsers();
+}
+
+// Circuit Breaker Configuration
+package com.yourcompany.microservices.sampleservice.service;
+
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
+import org.springframework.stereotype.Service;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class UserService {
+    
+    private final UserServiceClient userServiceClient;
+    
+    public UserService(UserServiceClient userServiceClient) {
+        this.userServiceClient = userServiceClient;
+    }
+    
+    @CircuitBreaker(name = "user-service", fallbackMethod = "fallbackGetUser")
+    @Retry(name = "user-service")
+    @TimeLimiter(name = "user-service")
+    public CompletableFuture<UserDto> getUser(Long id) {
+        return CompletableFuture.supplyAsync(() -> userServiceClient.getUserById(id));
+    }
+    
+    public CompletableFuture<UserDto> fallbackGetUser(Long id, Exception ex) {
+        return CompletableFuture.completedFuture(
+            new UserDto(id, "Default User", "default@example.com")
+        );
+    }
+}
+
+// Custom Metrics Configuration
+package com.yourcompany.microservices.sampleservice.config;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MetricsConfig {
+    
+    @Bean
+    public Counter userRequestCounter(MeterRegistry meterRegistry) {
+        return Counter.builder("user_requests_total")
+                .description("Total number of user requests")
+                .register(meterRegistry);
+    }
+    
+    @Bean
+    public Timer userRequestTimer(MeterRegistry meterRegistry) {
+        return Timer.builder("user_request_duration")
+                .description("Time taken to process user requests")
+                .register(meterRegistry);
+    }
+}
