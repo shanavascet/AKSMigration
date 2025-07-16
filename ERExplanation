@@ -1,0 +1,52 @@
+Entities Identified:
+
+Flight (Primary Entity)
+
+Contains flight identification and operational details
+Includes attributes like flight_id, flight number, dates, aircraft type, departure/arrival info, etc.
+
+
+CatererFocused
+
+Manages passenger counts by class for both booked and checked-in passengers
+Tracks both adult and infant passengers across different cabin classes
+Links to Flight via focussedFlightId
+
+
+Caterer
+
+Contains catering station and indicator information
+Maintains history flags and check-in indicators
+
+
+Meal
+
+Stores meal information for different cabin classes
+Includes meal codes and types
+Has provision for all cabin classes (First, Business, Premium Economy, Economy)
+
+
+Service
+
+Tracks service-related information
+Includes service bands, sectors, loading/dispatch status
+Manages special service items like bar liquor and champagne availability
+
+
+CateringHistory
+
+Audit table tracking changes to catering services
+Records previous and current values with timestamps
+Maintains update history with user information
+
+
+
+Key Relationships:
+
+Flight is the central entity with one-to-many relationships to most other entities
+Each flight can have multiple caterer-focused records (for different users)
+Each flight has one caterer record and one service record
+Each flight can have multiple meal configurations
+Each flight can have multiple history records for tracking changes
+
+This ER diagram represents a comprehensive flight catering management system that tracks passenger counts, meal planning, service details, and maintains an audit trail of all changes.
